@@ -5,6 +5,16 @@
 #include "multi-lookup.h"
 #include "queue.h"
 
+#define MINARGS 3
+#define USAGE "<inputFilePath> <outputFilePath>"
+#define MAX_NAME_LIMIT 1025
+#define SBUFSIZE 1025
+#define INPUTFS "%1024s"
+
+#define QUEUE_SIZE 25
+#define MAX_RESOLVER_THREADS 10
+#define CU_CS3753_PA2_MULTI_LOOKUP_H
+
 int main(int argc, char* argv[]){
 
     int inFiles = argc-2;
@@ -18,9 +28,6 @@ int main(int argc, char* argv[]){
 
     pthread_t inThreads[inFiles];
     pthread_t outThreads[MAX_RESOLVER_THREADS];
-
-    pthread_mutex_t queueLock;
-    pthread_mutex_t fileLock;
 
     queue mainQueue;
 
