@@ -13,3 +13,7 @@ output.txt
 #LaTeX Cruf#
 handout/*.log
 handout/*.aux
+
+.idea/
+CMakeLists.txt
+cmake-build-debug/
