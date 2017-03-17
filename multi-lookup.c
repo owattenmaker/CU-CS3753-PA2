@@ -29,14 +29,13 @@ typedef struct outFunction {
     pthread_mutex_t* qLock;
     pthread_mutex_t* fLock;
     queue *q;
-    int* writing;
 } outFunP;
 
 // declare globally because reasons
 pthread_mutex_t queueLock;
 pthread_mutex_t fileLock;
 queue mainQueue;
-int writing = 1;
+int reading = 1;
 
 void* InputThread(void* p) {
 
@@ -54,6 +53,7 @@ void* InputThread(void* p) {
 
     while(fscanf(name, INPUTFS, hostname) > 0) {
         while(!success) {
+            // acquire queue lock before performing operations on it
             errorc = pthread_mutex_lock(queueLock);
             if (errorc) fprintf(stderr, "Queue mutex lock error %d\n", errorc);
 
@@ -70,7 +70,6 @@ void* InputThread(void* p) {
 
                 payload = strncpy(payload, hostname, MAX_NAME_LIMIT);
 
-                fprintf(stdout, "pushing %s onto queue\n", payload);
                 if (queue_push(mainqueue, payload) == QUEUE_FAILURE) fprintf(stderr, "Queue push error");
 
                 errorc = pthread_mutex_unlock(queueLock);
@@ -85,6 +84,8 @@ void* InputThread(void* p) {
         success = 0;
     }
 
+    // signal that all inputs have been read
+    reading = 0;
     // cleanup
     if (fclose(name)) fprintf(stderr, "Error closing file \n");
     return NULL;
@@ -98,15 +99,14 @@ void* OutputThread(void* p) {
     pthread_mutex_t* queueLock = params->qLock;
     pthread_mutex_t* fileLock = params->fLock;
     queue* mainqueue = params->q;
-    int* writing = params->writing;
 
     char* hostname;
     char firstipstr[INET6_ADDRSTRLEN];
 
     int errorc = 0;
 
-    while (*writing || !queue_is_empty(mainqueue)) {
-        // aquire lock
+    while (!queue_is_empty(mainqueue) || reading) {
+        // acquire queue lock before any operations are preformed
         errorc = pthread_mutex_lock(queueLock);
         if (errorc) fprintf(stderr, "Queue mutex lock error %d\n", errorc);
 
@@ -134,7 +134,6 @@ void* OutputThread(void* p) {
             if (errorc) fprintf(stderr, "File mutex lock error %d\n", errorc);
 
             // write to file
-            fprintf(stdout, "%s,%s\n", hostname, firstipstr);
             errorc = fprintf(output, "%s,%s\n", hostname, firstipstr);
             if (errorc < 0) fprintf(stderr, "Output file write error\n");
 
@@ -243,9 +242,8 @@ int main(int argc, char* argv[]){
         outParams[i].file_name = outputfp;
         outParams[i].q = &mainQueue;
         outParams[i].fLock = &fileLock;
-        outParams[i].writing = &writing;
 
-        errorc = pthread_create(&inThreads[i], NULL, OutputThread, &outParams[i]);
+        errorc = pthread_create(&outThreads[i], NULL, OutputThread, &outParams[i]);
         if (errorc) {
             fprintf(stderr, "couldn't create process thread: %d\n", errorc);
             exit(EXIT_FAILURE);
@@ -255,8 +253,6 @@ int main(int argc, char* argv[]){
     // join input threads
     for(i=0; i < inFiles; ++i) pthread_join(inThreads[i], NULL);
 
-    // set writing bit to 0 to signal
-    writing = 0;
     // join output threads
     for(i=0; i < MAX_RESOLVER_THREADS; ++i) pthread_join(outThreads[i], NULL);
 
