@@ -23,6 +23,7 @@ handout - Assignment description and documentation
 lookup - A basic non-threaded DNS query-er
 queueTest - Unit test program for queue
 pthread-hello ; A simple threaded "Hello World" program
+multi-lookup - threaded DNS query-er
 
 ---Examples---
 Build:
@@ -39,3 +40,6 @@ Check queue for memory leaks:
 
 Run pthread-hello
  ./pthread-hello
+
+Run multi-lookup
+ ./multi-lookup input/names1.txt results.txt

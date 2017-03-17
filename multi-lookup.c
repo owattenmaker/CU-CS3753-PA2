@@ -16,7 +16,7 @@
 #define SBUFSIZE 1025
 #define INPUTFS "%1024s"
 #define QUEUE_SIZE 25
-#define MAX_RESOLVER_THREADS 10
+#define MAX_RESOLVER_THREADS 2*sysconf( _SC_NPROCESSORS_ONLN ) // for extra credit
 
 typedef struct inFunction {
     FILE* file_name;
