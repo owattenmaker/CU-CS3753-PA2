@@ -24,7 +24,7 @@ pthread_mutex_t fileLock;
 queue mainQueue;
 int reading = 1;
 
-void* InputThread(void* p) {
+void* RequestThread(void *p) {
     FILE* outfp = p;
 
     char *payload;
@@ -73,7 +73,7 @@ void* InputThread(void* p) {
     return NULL;
 }
 
-void* OutputThread(void* p) {
+void* ResolveThread(void *p) {
     // pull data out from params
     FILE* output = p;
 
@@ -134,8 +134,8 @@ int main(int argc, char* argv[]){
     FILE* inputfp[inFiles];
     FILE* outputfp = NULL;
 
-    pthread_t inThreads[inFiles];
-    pthread_t outThreads[MAX_RESOLVER_THREADS];
+    pthread_t requestThreads[inFiles];
+    pthread_t resolveThreads[MAX_RESOLVER_THREADS];
 
     // local variable for iterating
     int i;
@@ -192,7 +192,7 @@ int main(int argc, char* argv[]){
     /* loop for input threads */
     for(i=0; i < inFiles; ++i) {
 
-        errorc = pthread_create(&inThreads[i], NULL, InputThread, (void *)inputfp[i]);
+        errorc = pthread_create(&requestThreads[i], NULL, RequestThread, (void *) inputfp[i]);
         if (errorc) {
             fprintf(stderr, "couldn't create process thread: %d\n", errorc);
             exit(EXIT_FAILURE);
@@ -202,7 +202,7 @@ int main(int argc, char* argv[]){
     /* now create output threads */
     for(i=0; i < MAX_RESOLVER_THREADS; ++i) {
 
-        errorc = pthread_create(&outThreads[i], NULL, OutputThread, (void *)outputfp);
+        errorc = pthread_create(&resolveThreads[i], NULL, ResolveThread, (void *) outputfp);
         if (errorc) {
             fprintf(stderr, "couldn't create process thread: %d\n", errorc);
             exit(EXIT_FAILURE);
@@ -210,10 +210,10 @@ int main(int argc, char* argv[]){
     }
 
     // join input threads
-    for(i=0; i < inFiles; ++i) pthread_join(inThreads[i], NULL);
+    for(i=0; i < inFiles; ++i) pthread_join(requestThreads[i], NULL);
 
     // join output threads
-    for(i=0; i < MAX_RESOLVER_THREADS; ++i) pthread_join(outThreads[i], NULL);
+    for(i=0; i < MAX_RESOLVER_THREADS; ++i) pthread_join(resolveThreads[i], NULL);
 
     /* Close Output File */
     if (fclose(outputfp)) fprintf(stderr, "Error closing output file\n");
