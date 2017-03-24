@@ -18,19 +18,6 @@
 #define QUEUE_SIZE 25
 #define MAX_RESOLVER_THREADS 2*sysconf( _SC_NPROCESSORS_ONLN ) // for extra credit
 
-typedef struct inFunction {
-    FILE* file_name;
-    pthread_mutex_t* qLock;
-    queue* q;
-} inFunP;
-
-typedef struct outFunction {
-    FILE* file_name;
-    pthread_mutex_t* qLock;
-    pthread_mutex_t* fLock;
-    queue *q;
-} outFunP;
-
 // declare globally because reasons
 pthread_mutex_t queueLock;
 pthread_mutex_t fileLock;
@@ -38,12 +25,7 @@ queue mainQueue;
 int reading = 1;
 
 void* InputThread(void* p) {
-
-    inFunP *params = p;
-
-    FILE *name = params->file_name;
-    pthread_mutex_t *queueLock = params->qLock;
-    queue *mainqueue = params->q;
+    FILE* outfp = p;
 
     char *payload;
     char hostname[MAX_NAME_LIMIT];
@@ -51,15 +33,15 @@ void* InputThread(void* p) {
     int success = 0;
     int errorc = 0;
 
-    while(fscanf(name, INPUTFS, hostname) > 0) {
+    while(fscanf(outfp, INPUTFS, hostname) > 0) {
         while(!success) {
             // acquire queue lock before performing operations on it
-            errorc = pthread_mutex_lock(queueLock);
+            errorc = pthread_mutex_lock(&queueLock);
             if (errorc) fprintf(stderr, "Queue mutex lock error %d\n", errorc);
 
             // check for queue being full before continuing
-            if (queue_is_full(mainqueue)) {
-                errorc = pthread_mutex_unlock(queueLock);
+            if (queue_is_full(&mainQueue)) {
+                errorc = pthread_mutex_unlock(&queueLock);
                 if (errorc) fprintf(stderr, "Queue mutex unlock error %d\n", errorc);
                 // sleep for random time from project requirements
                 usleep((rand()%100)*1000);
@@ -70,9 +52,9 @@ void* InputThread(void* p) {
 
                 payload = strncpy(payload, hostname, MAX_NAME_LIMIT);
 
-                if (queue_push(mainqueue, payload) == QUEUE_FAILURE) fprintf(stderr, "Queue push error");
+                if (queue_push(&mainQueue, payload) == QUEUE_FAILURE) fprintf(stderr, "Queue push error");
 
-                errorc = pthread_mutex_unlock(queueLock);
+                errorc = pthread_mutex_unlock(&queueLock);
                 if (errorc) fprintf(stderr, "Queue mutex unlock error %d\n", errorc);
 
                 // signal success
@@ -87,40 +69,35 @@ void* InputThread(void* p) {
     // signal that all inputs have been read
     reading = 0;
     // cleanup
-    if (fclose(name)) fprintf(stderr, "Error closing file \n");
+    if (fclose(outfp)) fprintf(stderr, "Error closing file \n");
     return NULL;
 }
 
 void* OutputThread(void* p) {
     // pull data out from params
-    outFunP* params = p;
-
-    FILE* output = params->file_name;
-    pthread_mutex_t* queueLock = params->qLock;
-    pthread_mutex_t* fileLock = params->fLock;
-    queue* mainqueue = params->q;
+    FILE* output = p;
 
     char* hostname;
     char firstipstr[INET6_ADDRSTRLEN];
 
     int errorc = 0;
 
-    while (!queue_is_empty(mainqueue) || reading) {
+    while (!queue_is_empty(&mainQueue) || reading) {
         // acquire queue lock before any operations are preformed
-        errorc = pthread_mutex_lock(queueLock);
+        errorc = pthread_mutex_lock(&queueLock);
         if (errorc) fprintf(stderr, "Queue mutex lock error %d\n", errorc);
 
         // pop off next address from queue
-        hostname = queue_pop(mainqueue);
+        hostname = queue_pop(&mainQueue);
 
         // see if we have data and wait if not
         if (hostname == NULL) {
-            errorc = pthread_mutex_unlock(queueLock);
+            errorc = pthread_mutex_unlock(&queueLock);
             if (errorc) fprintf(stderr, "Queue mutex unlock error %d\n", errorc);
             usleep((rand()%100)*1000);
         } else {
             // no longer need queue
-            errorc = pthread_mutex_unlock(queueLock);
+            errorc = pthread_mutex_unlock(&queueLock);
             if (errorc) fprintf(stderr, "Queue mutex unlock error %d\n", errorc);
 
             /* finally do the one thing this program is supposed to do */
@@ -130,7 +107,7 @@ void* OutputThread(void* p) {
             }
 
             // lock file mutex for writing
-            errorc = pthread_mutex_lock(fileLock);
+            errorc = pthread_mutex_lock(&fileLock);
             if (errorc) fprintf(stderr, "File mutex lock error %d\n", errorc);
 
             // write to file
@@ -138,7 +115,7 @@ void* OutputThread(void* p) {
             if (errorc < 0) fprintf(stderr, "Output file write error\n");
 
             // unlock file mutex
-            errorc = pthread_mutex_unlock(fileLock);
+            errorc = pthread_mutex_unlock(&fileLock);
             if (errorc) fprintf(stderr, "file mutex unlock error %d\n", errorc);
 
             // extra safe hostname free up for the next round
@@ -159,9 +136,6 @@ int main(int argc, char* argv[]){
 
     pthread_t inThreads[inFiles];
     pthread_t outThreads[MAX_RESOLVER_THREADS];
-
-    inFunP inputParams[inFiles];
-    outFunP outParams[MAX_RESOLVER_THREADS];
 
     // local variable for iterating
     int i;
@@ -215,21 +189,10 @@ int main(int argc, char* argv[]){
         }
     }
 
-    /* open output files */
-    outputfp = fopen(argv[argc-1], "w");
-    if (!outputfp) {
-        fprintf(stderr, "error opening output file %s", argv[argc-1]);
-        exit(EXIT_FAILURE);
-    }
-
     /* loop for input threads */
     for(i=0; i < inFiles; ++i) {
-        FILE* current = inputfp[i];
-        inputParams[i].qLock = &queueLock;
-        inputParams[i].file_name = current;
-        inputParams[i].q = &mainQueue;
 
-        errorc = pthread_create(&inThreads[i], NULL, InputThread, &inputParams[i]);
+        errorc = pthread_create(&inThreads[i], NULL, InputThread, (void *)inputfp[i]);
         if (errorc) {
             fprintf(stderr, "couldn't create process thread: %d\n", errorc);
             exit(EXIT_FAILURE);
@@ -238,12 +201,8 @@ int main(int argc, char* argv[]){
 
     /* now create output threads */
     for(i=0; i < MAX_RESOLVER_THREADS; ++i) {
-        outParams[i].qLock = &queueLock;
-        outParams[i].file_name = outputfp;
-        outParams[i].q = &mainQueue;
-        outParams[i].fLock = &fileLock;
 
-        errorc = pthread_create(&outThreads[i], NULL, OutputThread, &outParams[i]);
+        errorc = pthread_create(&outThreads[i], NULL, OutputThread, (void *)outputfp);
         if (errorc) {
             fprintf(stderr, "couldn't create process thread: %d\n", errorc);
             exit(EXIT_FAILURE);
